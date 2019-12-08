@@ -1,3 +1,11 @@
+#![cfg_attr(test, feature(custom_attribute))]
+#![cfg_attr(test, feature(plugin))]
+#![cfg_attr(test, feature(mutagen_plugin))]
+#[cfg(test)]
+extern crate mutagen;
+#[cfg(test)]
+use mutagen_plugin::mutate;
+
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::PathBuf;

@@ -29,6 +29,8 @@ string-interner = "0.7"
 
 [dev-dependencies]
 walkdir = "2"
+mutagen = { path = "/usr/local/src/mutagen" }
+mutagen-plugin = { path = "/usr/local/src/mutagen/plugin" }
 
 [profile.release]
 lto = true

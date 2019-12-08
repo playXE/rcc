@@ -110,6 +110,7 @@ lazy_static! {
     };
 }
 
+#[cfg_attr(test, mutate)]
 impl<'a> Lexer<'a> {
     /// Creates a Lexer from a filename and the contents of a file
     pub fn new<T: AsRef<str> + Into<String>>(file: T, chars: Chars<'a>, debug: bool) -> Lexer<'a> {
@@ -613,6 +614,7 @@ impl<'a> Lexer<'a> {
     }
 }
 
+#[cfg_attr(test, mutate)]
 impl<'a> Iterator for Lexer<'a> {
     // option: whether the stream is exhausted
     // result: whether the next lexeme is an error
