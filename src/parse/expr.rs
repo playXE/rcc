@@ -1021,10 +1021,8 @@ impl<I: Iterator<Item = Lexeme>> Parser<I> {
     {
         use crate::analyze::typecheck;
         self.left_associative_binary_op(next_grammar_func, tokens, |expr, next, token| {
-            if let Err(err) = typecheck::ensure_integer(&expr, &next, &token.data, token.location) {
-                return Err((err, *expr));
-            }
-            let (promoted_expr, next) = Expr::binary_promote(*expr, *next).map_err(flatten)?;
+            let (promoted_expr, next) =
+                typecheck::integer_binary_op(*expr, *next, &token).map_err(flatten)?;
             expr_func(promoted_expr, next, token)
         })
     }
@@ -1179,9 +1177,13 @@ impl Expr {
     // Perform a binary conversion, including all relevant casts.
     //
     // See `Type::binary_promote` for conversion rules.
-    fn binary_promote(left: Expr, right: Expr) -> RecoverableResult<(Expr, Expr), SemanticError> {
+    pub(crate) fn binary_promote(
+        left: Expr,
+        right: Expr,
+    ) -> RecoverableResult<(Expr, Expr), SemanticError> {
         let (left, right) = (left.rval(), right.rval());
         let ctype = Type::binary_promote(left.ctype.clone(), right.ctype.clone());
+        // ouch
         match (left.cast(&ctype), right.cast(&ctype)) {
             (Ok(left_cast), Ok(right_cast)) => Ok((left_cast, right_cast)),
             (Err((err, left)), Ok(right)) | (Ok(left), Err((err, right)))
