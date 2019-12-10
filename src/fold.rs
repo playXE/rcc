@@ -256,11 +256,11 @@ impl Expr {
                 let expr = expr.const_fold()?;
                 ExprType::Member(Box::new(expr), member)
             }
-            ExprType::Assign(target, value, token) => {
+            ExprType::Assign(target, value) => {
                 let (target, value) = (target.const_fold()?, value.const_fold()?);
                 // TODO: could we propagate this information somehow?
                 // e.g. fold `int main() { int x = 1; return x; }` to `return 1;`
-                ExprType::Assign(Box::new(target), Box::new(value), token)
+                ExprType::Assign(Box::new(target), Box::new(value))
             }
             ExprType::PostIncrement(expr, increase) => {
                 let expr = expr.const_fold()?;

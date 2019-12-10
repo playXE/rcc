@@ -129,7 +129,7 @@ pub enum ExprType {
     // Token: make >, <, <=, ... part of the same variant
     Compare(Box<Expr>, Box<Expr>, Token),
     // Token: allow extended assignment
-    Assign(Box<Expr>, Box<Expr>, Token),
+    Assign(Box<Expr>, Box<Expr>),
     // Ternary: if ? then : else
     Ternary(Box<Expr>, Box<Expr>, Box<Expr>),
     Comma(Box<Expr>, Box<Expr>),
@@ -365,7 +365,7 @@ impl Display for Expr {
                 write!(f, "({}) {} ({})", val, if *left { "<<" } else { ">>" }, by)
             }
             ExprType::Compare(left, right, token) => write!(f, "({}) {} ({})", left, token, right),
-            ExprType::Assign(left, right, token) => write!(f, "({}) {} ({})", left, token, right),
+            ExprType::Assign(left, right) => write!(f, "({}) = ({})", left, right),
             ExprType::Ternary(cond, left, right) => {
                 write!(f, "({}) ? ({}) : ({})", cond, left, right)
             }

@@ -98,7 +98,7 @@ impl Compiler {
             ExprType::Compare(left, right, token) => self.compare(*left, *right, &token, builder),
 
             // misfits
-            ExprType::Assign(lval, rval, token) => self.assignment(*lval, *rval, token, builder),
+            ExprType::Assign(lval, rval) => self.assignment(*lval, *rval, builder),
             ExprType::FuncCall(func, args) => match func.expr {
                 ExprType::Id(var) => self.call(FuncCall::Named(var.id), func.ctype, args, builder),
                 _ => {
@@ -509,27 +509,14 @@ impl Compiler {
             ctype: left.ctype,
         })
     }
-    fn assignment(
-        &mut self,
-        lval: Expr,
-        rval: Expr,
-        token: Token,
-        builder: &mut FunctionBuilder,
-    ) -> IrResult {
+    fn assignment(&mut self, lval: Expr, rval: Expr, builder: &mut FunctionBuilder) -> IrResult {
         let ctype = lval.ctype.clone();
         let location = lval.location;
-        let is_id = match lval.expr {
-            ExprType::Id(_) => true,
-            _ => false,
-        };
         let (target, value) = (
             self.compile_expr(lval, builder)?,
             self.compile_expr(rval, builder)?,
         );
         if let Type::Union(_) | Type::Struct(_) = ctype {
-            if token != Token::Equal {
-                unreachable!("struct should not have a valid complex assignment");
-            }
             use std::convert::TryInto;
             let size = ctype
                 .sizeof()
@@ -551,40 +538,6 @@ impl Compiler {
         }
         // scalar assignment
         let target_val = target.ir_val;
-        let (mut target, mut value) = (target, value);
-        if token != Token::Equal {
-            // need to deref explicitly to get an rval, the frontend didn't do it for us
-            if is_id {
-                let ctype = match target.ctype {
-                    Type::Pointer(t) => *t,
-                    _ => unreachable!("parser should only allow lvals to be assigned"),
-                };
-                let ir_type = ctype.as_ir_type();
-                target = Value {
-                    ir_val: builder
-                        .ins()
-                        .load(ir_type, MemFlags::new(), target.ir_val, 0),
-                    ir_type,
-                    ctype,
-                };
-            }
-            if value.ir_type != target.ir_type {
-                unimplemented!(
-                    "binary promotion for complex assignment ({} -> {})",
-                    value.ir_type,
-                    target.ir_type
-                );
-            }
-            value = Self::binary_assign_ir(
-                target,
-                value,
-                ctype,
-                token
-                    .without_assignment()
-                    .expect("only valid assignment tokens should be passed to assignment"),
-                builder,
-            )?;
-        }
         builder
             .ins()
             .store(MemFlags::new(), value.ir_val, target_val, 0);

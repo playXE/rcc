@@ -125,7 +125,8 @@ impl<I: Iterator<Item = Lexeme>> Parser<I> {
                     assign_op.location,
                 );
                 Ok(lval)
-            } else if assign_op.data == Token::Equal {  // simple assignment
+            } else if assign_op.data == Token::Equal {
+                // simple assignment
                 if rval.ctype != lval.ctype {
                     rval = rval
                         .cast(&lval.ctype)
@@ -136,53 +137,18 @@ impl<I: Iterator<Item = Lexeme>> Parser<I> {
                     constexpr: rval.constexpr,
                     lval: false, // `(i = j) = 4`; is invalid
                     location: assign_op.location,
-                    expr: ExprType::Assign(Box::new(lval), Box::new(rval), assign_op.data),
+                    expr: ExprType::Assign(Box::new(lval), Box::new(rval)),
                 })
-            } else {  // compound assignment, x += 5;
-                // this is not as trivial as x = x + 5 because x could include
-                // a nested function call like `*f() += 5;`
-                // this desugars to something like
-                // ```c
-                // {
-                //     int tmp = &x;
-                //     *tmp = *tmp + 5;
-                // }
-                use crate::data::{Qualifiers, StorageClass};
-                self.enter_scope();
-                let tmp_name = InternedStr::get_or_intern("tmp");
-                let tmp_var = Symbol {
-                    id: tmp_name,
-                    ctype: lval.ctype,
-                    qualifiers: Qualifiers::NONE,
-                    storage_class: StorageClass::Register,
-                    init: true,
-                };
-                self.scope.insert(tmp_name, tmp_var);
-                self.leave_scope(assign_op.location);  // location doesn't matter
-                // NOTE: this does _not_ call rval() on x
-                let ctype = tmp_var.ctype.clone();
-                let assign = ExprType::Assign(Box::new(Expr {
-                    expr: ExprType::Id(tmp_var),
-                    ctype: tmp_var.ctype,
-                    constexpr: lval.constexpr,
-                    lval: false,
-                    location: lval.location,
-                }), Box::new(lval), Token::Equal);
-                let tmp_assign_expr = Expr {
-                    expr: assign,
-                    ctype: ctype.clone(),
-                    constexpr: lval.constexpr && rval.constexpr,
-                    lval: true,
-                    location: lval.location,
-                };
-                let new_val = self.desugar_op(assign_op.data.without_assignment(), rval)?;
-                Ok(Expr {
-                    expr: ExprType::Assign(Box::new(tmp_assign_expr), Box::new(new_val), Token::Equal),
-                    ctype,
-                    constexpr: lval.constexpr && new_val.constexpr,
-                    lval: false,
-                    location: new_val.location,
-                })
+            } else {
+                // compound assignment, x += 5;
+                let op = assign_op
+                    .data
+                    .without_assignment()
+                    .expect("is_assignment does not match without_assignment");
+                Ok(
+                    Expr::desugar_compound_assignment(lval, rval, op, &mut self.scope)
+                        .into_inner(self.default_err_handler()),
+                )
             }
         } else {
             Ok(lval)
@@ -1424,21 +1390,8 @@ impl Expr {
                 location,
                 expr: ExprType::Cast(Box::new(Expr::int_literal(1, location))),
             };
-            Ok(Expr {
-                ctype: expr.ctype.clone(),
-                constexpr: rval.constexpr,
-                lval: false, // `(i = j) = 4`; is invalid
-                expr: ExprType::Assign(
-                    Box::new(expr),
-                    Box::new(rval),
-                    if increment {
-                        Token::PlusEqual
-                    } else {
-                        Token::MinusEqual
-                    },
-                ),
-                location,
-            })
+            let op = if increment { Token::Plus } else { Token::Minus };
+            Expr::desugar_op(expr, rval, op)
         } else {
             Ok(Expr {
                 constexpr: expr.constexpr,
@@ -1449,6 +1402,65 @@ impl Expr {
                 location,
             })
         }
+    }
+    fn desugar_op(_left: Self, _right: Self, _op: Token) -> RecoverableResult<Self, SemanticError> {
+        unimplemented!()
+    }
+    fn desugar_compound_assignment(
+        lval: Self,
+        rval: Self,
+        assign_op: Token,
+        scope: &mut crate::data::Scope<InternedStr, Symbol>,
+    ) -> RecoverableResult<Self, SemanticError> {
+        // this is not as trivial as x = x + 5 because x could include
+        // a nested function call like `*f() += 5;`
+        // this desugars to something like
+        // ```c
+        // {
+        //     int tmp = &x;
+        //     *tmp = *tmp + 5;
+        // }
+        use crate::data::{Qualifiers, StorageClass};
+        scope.enter_scope();
+        let tmp_name = InternedStr::get_or_intern("tmp");
+        let tmp_var = Symbol {
+            id: tmp_name,
+            ctype: lval.ctype.clone(),
+            qualifiers: Qualifiers::NONE,
+            storage_class: StorageClass::Register,
+            init: true,
+        };
+        scope.insert(tmp_name, tmp_var.clone());
+        scope.leave_scope();
+        // NOTE: this does _not_ call rval() on x
+        let ctype = tmp_var.ctype.clone();
+        let location = lval.location;
+        let lconstexpr = lval.constexpr;
+        let assign = ExprType::Assign(
+            Box::new(Expr {
+                ctype: ctype.clone(),
+                constexpr: lval.constexpr,
+                lval: false,
+                location,
+                expr: ExprType::Id(tmp_var),
+            }),
+            Box::new(lval),
+        );
+        let tmp_assign_expr = Expr {
+            expr: assign,
+            ctype: ctype.clone(),
+            constexpr: lconstexpr && rval.constexpr,
+            lval: true,
+            location,
+        };
+        let new_val = Expr::desugar_op(tmp_assign_expr.clone(), rval, assign_op)?;
+        Ok(Expr {
+            ctype,
+            constexpr: lconstexpr && new_val.constexpr,
+            lval: false,
+            location: new_val.location,
+            expr: ExprType::Assign(Box::new(tmp_assign_expr), Box::new(new_val)),
+        })
     }
     // convenience method for constructing an Expr
     fn default_expr<C>(
