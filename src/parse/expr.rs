@@ -1019,25 +1019,10 @@ impl<I: Iterator<Item = Lexeme>> Parser<I> {
         E: Fn(Expr, Expr, Locatable<Token>) -> RecoverableResult<Expr, Locatable<String>>,
         G: Fn(&mut Self) -> SyntaxResult,
     {
+        use crate::analyze::typecheck;
         self.left_associative_binary_op(next_grammar_func, tokens, |expr, next, token| {
-            let non_scalar = if !expr.ctype.is_integral() {
-                Some(&expr.ctype)
-            } else if !next.ctype.is_integral() {
-                Some(&next.ctype)
-            } else {
-                None
-            };
-            if let Some(ctype) = non_scalar {
-                return Err((
-                    Locatable {
-                        data: format!(
-                            "expected integer on both sides of '{}', got '{}'",
-                            token.data, ctype
-                        ),
-                        location: token.location,
-                    },
-                    *expr,
-                ));
+            if let Err(err) = typecheck::ensure_integer(&expr, &next, &token.data, token.location) {
+                return Err((err, *expr));
             }
             let (promoted_expr, next) = Expr::binary_promote(*expr, *next).map_err(flatten)?;
             expr_func(promoted_expr, next, token)
