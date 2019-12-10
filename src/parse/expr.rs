@@ -125,7 +125,7 @@ impl<I: Iterator<Item = Lexeme>> Parser<I> {
                     assign_op.location,
                 );
                 Ok(lval)
-            } else {
+            } else if assign_op.data == Token::Equal {  // simple assignment
                 if rval.ctype != lval.ctype {
                     rval = rval
                         .cast(&lval.ctype)
@@ -137,6 +137,51 @@ impl<I: Iterator<Item = Lexeme>> Parser<I> {
                     lval: false, // `(i = j) = 4`; is invalid
                     location: assign_op.location,
                     expr: ExprType::Assign(Box::new(lval), Box::new(rval), assign_op.data),
+                })
+            } else {  // compound assignment, x += 5;
+                // this is not as trivial as x = x + 5 because x could include
+                // a nested function call like `*f() += 5;`
+                // this desugars to something like
+                // ```c
+                // {
+                //     int tmp = &x;
+                //     *tmp = *tmp + 5;
+                // }
+                use crate::data::{Qualifiers, StorageClass};
+                self.enter_scope();
+                let tmp_name = InternedStr::get_or_intern("tmp");
+                let tmp_var = Symbol {
+                    id: tmp_name,
+                    ctype: lval.ctype,
+                    qualifiers: Qualifiers::NONE,
+                    storage_class: StorageClass::Register,
+                    init: true,
+                };
+                self.scope.insert(tmp_name, tmp_var);
+                self.leave_scope(assign_op.location);  // location doesn't matter
+                // NOTE: this does _not_ call rval() on x
+                let ctype = tmp_var.ctype.clone();
+                let assign = ExprType::Assign(Box::new(Expr {
+                    expr: ExprType::Id(tmp_var),
+                    ctype: tmp_var.ctype,
+                    constexpr: lval.constexpr,
+                    lval: false,
+                    location: lval.location,
+                }), Box::new(lval), Token::Equal);
+                let tmp_assign_expr = Expr {
+                    expr: assign,
+                    ctype: ctype.clone(),
+                    constexpr: lval.constexpr && rval.constexpr,
+                    lval: true,
+                    location: lval.location,
+                };
+                let new_val = self.desugar_op(assign_op.data.without_assignment(), rval)?;
+                Ok(Expr {
+                    expr: ExprType::Assign(Box::new(tmp_assign_expr), Box::new(new_val), Token::Equal),
+                    ctype,
+                    constexpr: lval.constexpr && new_val.constexpr,
+                    lval: false,
+                    location: new_val.location,
                 })
             }
         } else {
